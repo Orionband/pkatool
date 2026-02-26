@@ -631,7 +631,7 @@ inline std::string reset_activity(const std::string& xml) {
             if (cdms_end != std::string::npos) {
                 std::string countdownms = activity_tag.substr(cdms_start, cdms_end - cdms_start);
                 
-                std::fprintf(stderr, "[info] setting COUNTDOWNLEFT to %s\n", countdownms.c_str());
+                std::fprintf(stderr, "[info] resetting COUNTDOWNLEFT \n");
                 std::fflush(stderr);
                 
                 // Replace COUNTDOWNLEFT with COUNTDOWNMS value
@@ -854,10 +854,114 @@ inline std::string clear_recent_files(const std::string& xml) {
     return result;
 }
 
-inline std::string release_activity(const std::string& xml) {
+inline std::string set_time_limit(const std::string& xml, unsigned long long time_ms, int timer_type) {
     if (xml.empty()) return xml;
     
-    std::fprintf(stderr, "[info] releasing activity (clear recent, lock, reset)\n");
+    std::fprintf(stderr, "[info] setting timer type to %d", timer_type);
+    if (timer_type == 1) {
+        std::fprintf(stderr, " (countdown), time limit = %llu ms\n", time_ms);
+    } else {
+        std::fprintf(stderr, " (elapsed time)\n");
+    }
+    std::fflush(stderr);
+    
+    std::string result = xml;
+    
+    // Set TIMERTYPE
+    try {
+        result = std::regex_replace(result,
+            std::regex(R"(TIMERTYPE="[^"]*")"),
+            "TIMERTYPE=\"" + std::to_string(timer_type) + "\"");
+    } catch (const std::exception& e) {
+        std::fprintf(stderr, "[warn] regex error setting TIMERTYPE: %s\n", e.what());
+    }
+    
+    if (timer_type == 1) {
+        // Countdown mode - set time values
+        std::string time_str = std::to_string(time_ms);
+        
+        // Replace COUNTDOWNMS="..."
+        try {
+            result = std::regex_replace(result,
+                std::regex(R"(COUNTDOWNMS="[^"]*")"),
+                "COUNTDOWNMS=\"" + time_str + "\"");
+        } catch (const std::exception& e) {
+            std::fprintf(stderr, "[warn] regex error setting COUNTDOWNMS: %s\n", e.what());
+        }
+        
+        // Replace COUNTDOWNLEFT="..."
+        try {
+            result = std::regex_replace(result,
+                std::regex(R"(COUNTDOWNLEFT="[^"]*")"),
+                "COUNTDOWNLEFT=\"" + time_str + "\"");
+        } catch (const std::exception& e) {
+            std::fprintf(stderr, "[warn] regex error setting COUNTDOWNLEFT: %s\n", e.what());
+        }
+        
+        // Reset COUNTDOWN_EXPIRED="0"
+        try {
+            result = std::regex_replace(result,
+                std::regex(R"(COUNTDOWN_EXPIRED="[^"]*")"),
+                "COUNTDOWN_EXPIRED=\"0\"");
+        } catch (const std::exception& e) {
+            std::fprintf(stderr, "[warn] regex error setting COUNTDOWN_EXPIRED: %s\n", e.what());
+        }
+    } else {
+        // Elapsed time mode - reset ELAPSED to 0
+        try {
+            result = std::regex_replace(result,
+                std::regex(R"(ELAPSED="[^"]*")"),
+                "ELAPSED=\"0\"");
+        } catch (const std::exception& e) {
+            std::fprintf(stderr, "[warn] regex error setting ELAPSED: %s\n", e.what());
+        }
+    }
+    
+    std::fprintf(stderr, "[info] timer settings applied\n");
+    std::fflush(stderr);
+    
+    return result;
+}
+
+inline std::string set_dynamic_feedback(const std::string& xml, int feedback_type) {
+    if (xml.empty()) return xml;
+    
+    const char* type_names[] = {
+        "none",
+        "item count percentage",
+        "score percentage", 
+        "item count",
+        "score"
+    };
+    
+    std::fprintf(stderr, "[info] setting dynamic feedback to type %d (%s)\n", 
+                 feedback_type, (feedback_type >= 0 && feedback_type <= 4) ? type_names[feedback_type] : "unknown");
+    std::fflush(stderr);
+    
+    std::string result = xml;
+    
+    // Determine the value (true/false)
+    std::string value = (feedback_type == 0) ? "false" : "true";
+    
+    // Replace <DYNAMIC_PERCENTAGE_FEEDBACK TYPE="X">value</DYNAMIC_PERCENTAGE_FEEDBACK>
+    try {
+        result = std::regex_replace(result,
+            std::regex(R"(<DYNAMIC_PERCENTAGE_FEEDBACK TYPE="[^"]*">[^<]*</DYNAMIC_PERCENTAGE_FEEDBACK>)"),
+            "<DYNAMIC_PERCENTAGE_FEEDBACK TYPE=\"" + std::to_string(feedback_type) + "\">" + value + "</DYNAMIC_PERCENTAGE_FEEDBACK>");
+    } catch (const std::exception& e) {
+        std::fprintf(stderr, "[warn] regex error setting DYNAMIC_PERCENTAGE_FEEDBACK: %s\n", e.what());
+    }
+    
+    std::fprintf(stderr, "[info] dynamic feedback set\n");
+    std::fflush(stderr);
+    
+    return result;
+}
+
+inline std::string release_activity(const std::string& xml, unsigned long long time_limit_ms, int timer_type, int feedback_type) {
+    if (xml.empty()) return xml;
+    
+    std::fprintf(stderr, "[info] releasing activity (clear recent, lock, reset, set time, set feedback)\n");
     std::fflush(stderr);
     
     std::string result = xml;
@@ -871,13 +975,19 @@ inline std::string release_activity(const std::string& xml) {
     // Step 3: Reset activity (same as reset command)
     result = reset_activity(result);
     
+    // Step 4: Set timer
+    result = set_time_limit(result, time_limit_ms, timer_type);
+    
+    // Step 5: Set dynamic feedback
+    result = set_dynamic_feedback(result, feedback_type);
+    
     std::fprintf(stderr, "[info] release complete\n");
     std::fflush(stderr);
     
     return result;
 }
 
-inline std::string release_file(const std::string& input) {
+inline std::string release_file(const std::string& input, unsigned long long time_limit_ms, int timer_type, int feedback_type) {
     std::fprintf(stderr, "[info] decrypting for release...\n");
     std::fflush(stderr);
     
@@ -886,7 +996,7 @@ inline std::string release_file(const std::string& input) {
     std::fprintf(stderr, "[info] decrypted, size = %zu\n", xml.size());
     std::fflush(stderr);
     
-    xml = release_activity(xml);
+    xml = release_activity(xml, time_limit_ms, timer_type, feedback_type);
     
     std::fprintf(stderr, "[info] re-encrypting...\n");
     std::fflush(stderr);

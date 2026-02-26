@@ -102,7 +102,7 @@ options:
   -p <in> <out>   remove password from activity file
   -u <in> <out>   unlock all locked features in activity file
   -r <in> <out>   reset activity (restore initial network, reset timer)
-  -l <in> <out>   release activity (clear recent, lock, reset)
+  -l <in> <out>   release activity (clear recent, lock, feedback, timer, reset)
   -x <in> <base>  extract networks (creates <base>_current.pkt, etc)
   -nets <in>      decrypt packet tracer "nets" file
   -logs <in>      decrypt packet tracer log file
@@ -223,8 +223,55 @@ int main(int argc, char *argv[]) {
             std::fprintf(stderr, "[info] release: %s -> %s\n", argv[2], argv[3]);
             std::fflush(stderr);
 
+            // Prompt for time limit
+            std::printf("Enter time limit in minutes (0 for no time limit): ");
+            std::fflush(stdout);
+            
+            int time_minutes = 0;
+            if (std::scanf("%d", &time_minutes) != 1) {
+                time_minutes = 0;
+            }
+            
+            unsigned long long time_ms = 0;
+            int timer_type = 0;
+            
+            if (time_minutes > 0) {
+                time_ms = static_cast<unsigned long long>(time_minutes) * 60ULL * 1000ULL;
+                timer_type = 1;
+                std::fprintf(stderr, "[info] time limit set to %d minutes (%llu ms)\n", 
+                             time_minutes, time_ms);
+            } else {
+                timer_type = 0;
+                std::fprintf(stderr, "[info] no time limit (elapsed time mode)\n");
+            }
+            std::fflush(stderr);
+            
+            // Prompt for dynamic feedback mode
+            std::printf("\nDynamic Feedback Mode:\n");
+            std::printf("  0 - None\n");
+            std::printf("  1 - Show item count percentage\n");
+            std::printf("  2 - Show score percentage\n");
+            std::printf("  3 - Show item count\n");
+            std::printf("  4 - Show score\n");
+            std::printf("Enter feedback mode (0-4): ");
+            std::fflush(stdout);
+            
+            int feedback_type = 0;
+            if (std::scanf("%d", &feedback_type) != 1) {
+                feedback_type = 0;
+            }
+            
+            // Validate feedback type
+            if (feedback_type < 0 || feedback_type > 4) {
+                std::fprintf(stderr, "[warn] invalid feedback type %d, defaulting to 0 (none)\n", feedback_type);
+                feedback_type = 0;
+            }
+            
+            std::fprintf(stderr, "[info] feedback mode set to %d\n", feedback_type);
+            std::fflush(stderr);
+
             std::string input = read_binary_file(argv[2]);
-            std::string output = pkatool::release_file(input);
+            std::string output = pkatool::release_file(input, time_ms, timer_type, feedback_type);
 
             write_binary_file(argv[3], output);
             
@@ -237,8 +284,7 @@ int main(int argc, char *argv[]) {
             std::fflush(stderr);
             
             std::fprintf(stderr, "[done]\n");
-        }
-		// --- extract networks ---
+        }// --- extract networks ---
         else if (action == "-x" && argc >= 4) {
             std::fprintf(stderr, "[info] extract networks: %s -> %s_*.pkt\n", argv[2], argv[3]);
             std::fflush(stderr);
